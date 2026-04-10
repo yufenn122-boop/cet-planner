@@ -151,20 +151,8 @@ h3 { font-size: 1.05rem !important; }
 st.title("📚 四六级督学计划生成器")
 st.caption("上传问卷星 Excel/CSV → 分析学员 → 生成 Week1 计划 → 导出")
 
-# ─── API Key 配置（可折叠，默认收起）────────────────────────
-with st.expander("⚙️ GPT 配置（可选）", expanded=False):
-    api_key_input = st.text_input(
-        "OpenAI API Key",
-        value=OPENAI_API_KEY,
-        type="password",
-        help="填入后使用 GPT 润色计划内容；留空则使用纯规则模板",
-    )
-    if api_key_input:
-        st.success("已配置 API Key，将使用 GPT 润色")
-    else:
-        st.info("未配置 API Key，使用纯规则模板生成")
-
-use_gpt = bool(api_key_input)
+# 默认使用 GPT 润色，API Key 从 Secrets 读取，不在界面暴露
+use_gpt = bool(OPENAI_API_KEY)
 
 # ─── Step 1: 上传文件 ─────────────────────────────────────────
 st.subheader("① 上传问卷文件")
@@ -259,19 +247,10 @@ for p, a in zip(students, analyses):
 # ─── Step 4: 生成计划 ─────────────────────────────────────────
 st.subheader("④ 生成 Week1 计划")
 
-if use_gpt:
-    st.info(f"将使用 GPT 润色计划内容，每位学员约需 5-15 秒")
-else:
-    st.info("使用纯规则模板生成")
-
 if st.button("🚀 生成 Week1 计划", type="primary", use_container_width=True):
     plans = []
     progress = st.progress(0, text="准备生成...")
     status_area = st.empty()
-
-    if use_gpt and api_key_input:
-        import config as _cfg
-        _cfg.OPENAI_API_KEY = api_key_input
 
     for i, (profile, analysis) in enumerate(zip(students, analyses)):
         status_area.info(f"正在生成：{profile.name}（{i+1}/{len(students)}）")

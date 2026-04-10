@@ -9,11 +9,11 @@ from config import OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL
 
 @dataclass
 class DayPlan:
-    day: int          # 1-7
+    day: int
     vocab: str
     reading: str
-    other: str        # 听力 / 写作 / 复习，取决于方向
-    other_label: str  # "听力" / "写作" / "复习"
+    other: str
+    other_label: str
 
 
 @dataclass
@@ -21,120 +21,92 @@ class Week1Plan:
     student_name: str
     exam_type: str
     week_goal: str
-    days: list        # list[DayPlan]
+    days: list  # list[DayPlan]
 
 
-# ─── 规则模板库 ──────────────────────────────────────────────
+# ─── 规则模板库（按天递进，不再循环取） ──────────────────────
 
-# 单词任务模板
-VOCAB_TEMPLATES = {
-    "薄弱": [
-        "新学四六级核心词 Day{d}（30个），用例句辅助记忆，标注难词",
-        "新学四六级核心词 Day{d}（30个），重点记忆昨日标注难词 + 新词",
-        "新学四六级核心词 Day{d}（30个），默写昨日词汇，错词重点标注",
-        "新学四六级核心词 Day{d}（30个），复习 Day1-Day3 词汇，查漏补缺",
-        "新学四六级核心词 Day{d}（30个），重点复习本周高频词",
-        "复习单词 Day1-Day5 全部词汇，错词整理成错词本",
-        "复习单词本周全部词汇，重点攻克错词，准备下周新词",
-    ],
-    "已有基础": [
-        "复习单词四六级高频词 Day{d}（20个），快速过已掌握词，精记生词",
-        "复习单词四六级高频词 Day{d}（20个），重点复习昨日生词",
-        "复习单词四六级高频词 Day{d}（20个），默写昨日生词，错词重点标注",
-        "复习单词四六级高频词 Day{d}（20个），复习 Day1-Day3 生词",
-        "复习单词四六级高频词 Day{d}（20个），重点复习本周高频词",
-        "复习单词本周全部生词，整理错词本",
-        "复习单词本周全部词汇，重点攻克错词",
-    ],
-}
-
-# 阅读任务模板（A档：仔细阅读；B档：其他题型）
-READING_TEMPLATES_A = [
-    "仔细阅读：2024年6月四级真题 阅读理解第1篇，限时15分钟，对答案后精析错题逻辑",
-    "仔细阅读：2023年12月四级真题 阅读理解第1篇，限时15分钟，整理错题中的阅读高频词",
-    "仔细阅读：2023年6月四级真题 阅读理解第1篇，限时15分钟，对答案后分析出题规律",
-    "仔细阅读：2022年12月四级真题 阅读理解第1篇，限时15分钟，精析长难句结构",
-    "仔细阅读：2022年6月四级真题 阅读理解第1篇，限时15分钟，对答案后整理错题",
-    "仔细阅读：2021年12月四级真题 阅读理解第1篇，限时15分钟，复习本周阅读高频词",
-    "复习本周阅读错题，整理错题本，总结本周阅读得分规律",
+# 单词：未背过核心词（每天新背+复习+补充高频词）
+VOCAB_NEW = [
+    "背四级核心高频词30个，用例句辅助记忆；补充阅读高频词10个\n要求：把30个里最不熟的10个单独记下来",
+    "复习Day1的30个核心词；新背核心词20个；补充听力高频词10个\n要求：把今天仍记不住的词单独标出来",
+    "复习前两天核心词50个；补充翻译高频词10个\n要求：把重复看过仍不熟的10个词再过一遍",
+    "复习已背核心词50个；新背核心词20个；补充听力高频词10个\n要求：把不熟的词抄一遍",
+    "复习本周已背核心词；补充写作高频词10个\n要求：把不熟的词抄一遍",
+    "复习本周已背核心词；重点过之前抄过不熟的词；补充听力高频词10个",
+    "复习本周已背核心词；重点过之前抄过不熟的词",
 ]
 
-READING_TEMPLATES_B = [
-    "选词填空：2024年6月四级真题 选词填空，限时10分钟，对答案后分析词性规律",
-    "长篇匹配：2023年12月四级真题 长篇匹配，限时15分钟，对答案后精析定位技巧",
-    "翻译：2024年6月四级真题 翻译题，限时15分钟，对照参考译文分析差距",
-    "选词填空：2023年6月四级真题 选词填空，限时10分钟，整理高频词性搭配",
-    "长篇匹配：2022年12月四级真题 长篇匹配，限时15分钟，练习关键词定位法",
-    "翻译：2023年12月四级真题 翻译题，限时15分钟，重点练习长句拆分翻译",
-    "复习本周阅读/翻译错题，整理错题本，总结本周得分规律",
+# 单词：已背过核心词（巩固复习为主）
+VOCAB_REVIEW = [
+    "复习四六级核心高频词40个，快速过已掌握词，精记生词；补充阅读高频词10个\n要求：把仍不熟的词单独标出来",
+    "复习昨日生词；新过核心词30个；补充听力高频词10个\n要求：把今天仍记不住的词单独标出来",
+    "默写昨日生词，错词重点标注；补充翻译高频词10个",
+    "复习本周已过核心词；新过核心词30个；补充听力高频词10个\n要求：把不熟的词抄一遍",
+    "复习本周全部生词；补充写作高频词10个\n要求：把不熟的词抄一遍",
+    "重点过本周抄过不熟的词；补充听力高频词10个",
+    "复习本周全部词汇；重点攻克错词",
 ]
 
-# 听力任务模板（听力最弱时使用）
-LISTENING_WEAK_TEMPLATES = [
-    "听力方法课：学习听力做题技巧（预读题目、抓关键词），不做题，只听方法讲解",
-    "短新闻入门：VOA Special English 慢速新闻 1 篇，精听跟读，听写关键词",
-    "四级听力短对话：2024年6月真题 短对话 1-4 题，精听每道题，对答案后逐句跟读",
-    "四级听力短对话：2024年6月真题 短对话 5-8 题，精听每道题，整理听力高频词",
-    "四级听力长对话：2024年6月真题 长对话第1段，精听，对答案后分析出题规律",
-    "复习本周听力错题，重听错题音频，整理听力高频词",
-    "复习本周听力内容，跟读练习，巩固听力高频词",
+# 阅读（7天递进：Day1仔细阅读入门→Day3选词填空→Day5长篇匹配→Day6写作轻触→Day7复盘）
+READING_7 = [
+    "1篇仔细阅读（2024及以前真题）\n先限时完成，再对答案\n记录：对了几题 / 错了几题 / 最影响理解的5个词",
+    "1篇仔细阅读（2023年真题）\n限时完成，对答案，把错题对应到原文句子\n打卡要交：正确题数",
+    "选词填空1篇（限时10分钟）\n对答案后分析词性规律，整理3个高频词性搭配",
+    "1篇仔细阅读（2022年真题）\n限时完成，对答案，记录正确率和Day1对比\n打卡要交：正确题数",
+    "长篇匹配1篇（限时15分钟）\n练习关键词定位法，对答案后标出每题定位词",
+    "选词填空1篇 + 长篇匹配1篇\n选词填空限时10分钟，长篇匹配限时15分钟",
+    "复习本周阅读错题\n总结：①本周阅读正确率波动 ②最常错的2类题型",
 ]
 
-# 写译任务模板（写译最弱时轻量接触）
-WRITING_LIGHT_TEMPLATES = [
-    "写作入门：阅读2024年6月四级真题作文范文，分析段落结构和高分句型，不写作",
-    "翻译入门：阅读2024年6月四级真题翻译参考译文，分析长句拆分方法，不翻译",
-    "写作练习：抄写2023年12月四级真题作文范文，标注高分句型",
-    "翻译练习：翻译2023年12月四级真题翻译题前3句，对照参考译文分析差距",
-    "写作练习：背诵2023年6月四级真题作文开头段和结尾段",
-    "复习本周写作/翻译笔记，整理高分句型",
-    "复习本周写作/翻译内容，巩固高分句型",
+# 听力弱（7天递进：方法课→短新闻入门→练习→强化→复盘）
+LISTENING_WEAK_7 = [
+    "看烤鸭TV第1集《四级听力备考全攻略》\n边看边记笔记，整理出3条做题思路",
+    "看烤鸭TV第2集《贯穿四级听力的核心概念》\n边看边记笔记，最后整理出3条你今天记住的做题思路",
+    "看烤鸭TV第3集《短篇新闻 题型详解》\n重点记：短新闻常见设问方式、关键词位置、听前该看什么",
+    "短新闻1组\n做题前先看题干关键词；做完后对答案\n整理3个没听清的点 + 3个听力高频词\n打卡要交：正确题数",
+    "短新闻1组\n要求：做题 + 对答案 + 回听原文，把每题对应的定位词标出来\n打卡要交：正确题数",
+    "短新闻1组\n总结错因：是没听到关键词、定位慢、还是选项理解错？",
+    "回顾烤鸭TV第2、3集笔记；把本周做过的短新闻里错得最多的1组重听一遍\n与第一次做对比，总结仍听不出来的原因",
 ]
 
-# 通用复习任务（无明显弱项时）
-REVIEW_TEMPLATES = [
+# 写译弱（7天递进：读范文→轻练→写提纲→翻译→复盘）
+WRITING_WEAK_7 = [
+    "写作入门：阅读2024年6月四级真题作文范文\n分析段落结构和高分句型，不写作\n整理3个可以直接套用的句型",
+    "翻译入门：阅读2024年6月四级真题翻译参考译文\n分析长句拆分方法，不翻译\n整理2个翻译技巧",
+    "写作轻练：写1篇四级作文提纲 + 开头段\n先列中文思路3点，再写英文开头段\n开头段必须包含：主题句 + 个人态度",
+    "翻译练习：翻译1段（2024及以前真题）\n限时20分钟，最后只改3处最明显错误\n重点看：主干是否完整、时态是否乱",
+    "写作练习：抄写2023年12月四级真题作文范文\n标注高分句型，背诵开头段和结尾段",
+    "翻译练习：翻译1段（2023年真题）\n对照参考译文，分析差距\n打卡要交：翻译完成截图",
+    "复习本周写作/翻译笔记\n整理高分句型，总结本周写译最大收获",
+]
+
+# 无明显弱项（均衡复习）
+REVIEW_7 = [
     "复习今日单词和阅读错题，整理笔记",
-    "复习今日单词，回顾阅读高频词",
-    "复习今日单词和阅读错题，标注难点",
+    "复习今日单词，回顾阅读高频词，整理错题",
+    "翻译练习：翻译1段（2024及以前真题），限时15分钟，对照参考译文分析差距",
     "复习本周 Day1-Day3 内容，查漏补缺",
-    "复习今日单词，整理本周阅读高频词",
+    "写作轻练：写1篇四级作文开头段，整理本周阅读高频词",
     "复习本周全部错题，整理错题本",
     "复习本周全部内容，总结学习规律，准备下周计划",
 ]
 
 
-def _pick(templates: list, day_index: int) -> str:
-    """按天数循环取模板"""
-    return templates[day_index % len(templates)]
-
-
-def _format_vocab(template: str, day: int) -> str:
-    return template.format(d=day)
-
-
 # ─── 规则生成 Week1 ──────────────────────────────────────────
 
 def _build_week1_rules(profile: StudentProfile, analysis: AnalysisResult) -> Week1Plan:
-    """纯规则生成 Week1 计划"""
-    vocab_key = "薄弱" if not profile.core_vocab_done else "已有基础"
-    vocab_templates = VOCAB_TEMPLATES[vocab_key]
+    vocab_templates = VOCAB_NEW if not profile.core_vocab_done else VOCAB_REVIEW
 
-    # 阅读档位：接近过线型+阅读强 用A档，其余用B档
-    use_reading_a = (
-        analysis.stage in ("接近过线型", "冲线准备型", "基础薄弱型")
-        or analysis.strong_section == "reading"
-    )
-    reading_templates = READING_TEMPLATES_A if use_reading_a else READING_TEMPLATES_B
-
-    # 第三部分：听力弱→听力模板；写译弱→写译轻量；其余→复习
+    # 第三部分选择
     if analysis.weak_section == "listening":
-        other_templates = LISTENING_WEAK_TEMPLATES
+        other_templates = LISTENING_WEAK_7
         other_label = "听力"
     elif analysis.weak_section == "writing_translation":
-        other_templates = WRITING_LIGHT_TEMPLATES
-        other_label = "写作"
+        other_templates = WRITING_WEAK_7
+        other_label = "写译"
     else:
-        other_templates = REVIEW_TEMPLATES
+        other_templates = REVIEW_7
         other_label = "复习"
 
     days = []
@@ -142,9 +114,9 @@ def _build_week1_rules(profile: StudentProfile, analysis: AnalysisResult) -> Wee
         day_num = i + 1
         days.append(DayPlan(
             day=day_num,
-            vocab=_format_vocab(_pick(vocab_templates, i), day_num),
-            reading=_pick(reading_templates, i),
-            other=_pick(other_templates, i),
+            vocab=vocab_templates[i],
+            reading=READING_7[i],
+            other=other_templates[i],
             other_label=other_label,
         ))
 
@@ -154,7 +126,7 @@ def _build_week1_rules(profile: StudentProfile, analysis: AnalysisResult) -> Wee
     strong_cn = SECTION_CN.get(analysis.strong_section, "") if analysis.strong_section else ""
 
     if stage == "基础薄弱型":
-        goal = f"建立每日学习习惯，夯实词汇基础，阅读入门，每天完成三部分任务"
+        goal = "建立每日学习习惯，夯实词汇基础，阅读入门，每天完成三部分任务"
     elif stage == "冲线准备型":
         goal = f"稳定每日学习节奏，词汇持续积累，{'重点突破' + weak_cn if weak_cn else '均衡推进'}，向425分冲刺"
     elif stage == "接近过线型":
@@ -164,7 +136,7 @@ def _build_week1_rules(profile: StudentProfile, analysis: AnalysisResult) -> Wee
     elif stage == "提优型":
         goal = f"精细化提升，{'重点攻克' + weak_cn if weak_cn else '全面提升'}，冲击高分"
     else:
-        goal = f"建立学习节奏，词汇+阅读双线并进，本周以分部分练习为主"
+        goal = "建立学习节奏，词汇+阅读双线并进，本周以分部分练习为主"
 
     return Week1Plan(
         student_name=profile.name,
@@ -174,26 +146,29 @@ def _build_week1_rules(profile: StudentProfile, analysis: AnalysisResult) -> Wee
     )
 
 
-# ─── GPT 润色 ────────────────────────────────────────────────
+# ─── GPT prompt ──────────────────────────────────────────────
 
 def _build_gpt_prompt(profile: StudentProfile, analysis: AnalysisResult, rule_plan: Week1Plan) -> str:
-    sections_info = ""
     if profile.last_total_score:
-        sections_info = f"""
-- 上次总分：{profile.last_total_score}
-- 听力：{profile.last_listening}，阅读：{profile.last_reading}，写译：{profile.last_writing_translation}
-- 强项：{SECTION_CN.get(analysis.strong_section, '未知')}，弱项：{SECTION_CN.get(analysis.weak_section, '未知')}
-- {'明显偏科' if analysis.is_biased else '各科差距不大'}"""
+        sections_info = (
+            f"- 上次总分：{profile.last_total_score}\n"
+            f"- 听力：{profile.last_listening}，阅读：{profile.last_reading}，写译：{profile.last_writing_translation}\n"
+            f"- 强项：{SECTION_CN.get(analysis.strong_section, '未知')}，弱项：{SECTION_CN.get(analysis.weak_section, '未知')}\n"
+            f"- {'明显偏科' if analysis.is_biased else '各科差距不大'}"
+        )
     else:
         sections_info = "- 无历史成绩"
 
     days_draft = ""
     for dp in rule_plan.days:
-        days_draft += f"""
-Day{dp.day}:
-  【单词】{dp.vocab}
-  【阅读】{dp.reading}
-  【{dp.other_label}】{dp.other}"""
+        days_draft += (
+            f"\nDay{dp.day}:\n"
+            f"  【单词】{dp.vocab}\n"
+            f"  【阅读】{dp.reading}\n"
+            f"  【{dp.other_label}】{dp.other}\n"
+        )
+
+    other_label = rule_plan.days[0].other_label
 
     prompt = f"""你是一名专业的英语四六级督学老师，正在为学生制定 Week1 学习计划。
 
@@ -214,31 +189,46 @@ Day{dp.day}:
 - 目标分差：{analysis.score_gap_level}
 - Week1 方向：{analysis.week1_focus}
 
-## 规则草稿（请在此基础上润色，不要大改结构）
+## 规则草稿（请在此基础上润色）
 {days_draft}
 
-## 润色要求
-1. 保持每天三部分结构：【单词】【阅读】【{rule_plan.days[0].other_label}】
-2. 任务描述要具体，不能写空话
-3. 不要写"复盘单词"，统一写"复习单词"
-4. 不要写"听力生词/阅读生词"，统一写"听力高频词/阅读高频词"
-5. 作文和翻译优先用 2024 年及以前真题
-6. 第一周以分部分练习为主，不上整套
-7. 仔细阅读第一周只做 1 篇练手
-8. 阅读部分只能二选一：A档（1篇仔细阅读+对答案）或 B档（选词填空/长篇匹配/翻译 中任选两个组合）
-9. 语气亲切自然，像督学老师写给学生的计划
-10. 每天每部分控制在 1-2 句话，不要太长
+## 润色要求（严格遵守）
 
-## 输出格式（严格按此 JSON 格式输出，不要有其他内容）
+### 结构要求
+1. 每天固定三部分：【单词】【阅读】【{other_label}】，顺序不变
+2. 7天要有递进感：Day1-2 打基础/方法课 → Day3-5 练习强化 → Day6-7 复盘总结
+3. 不要让7天任务完全一样，每天要有细微差异
+
+### 单词要求
+4. 单词部分必须包含"补充XX高频词10个"（XX根据当天主练板块选：阅读/听力/翻译/写作）
+5. 每天单词要有"要求"说明，例如：把不熟的词抄一遍 / 把最不熟的10个单独记下来
+
+### 阅读要求
+6. 阅读部分要有具体打卡指标，例如：打卡要交：正确题数 / 错题截图
+7. 仔细阅读每次只做1篇，限时15分钟
+8. 7天阅读要穿插不同题型：仔细阅读（3-4天）+ 选词填空（1天）+ 长篇匹配（1天）+ 复盘（1天）
+
+### {other_label}要求
+9. {other_label}部分同样要有打卡指标或具体记录要求
+10. 如果是听力弱项：Day1-3 先看方法课（烤鸭TV），Day4起才开始做题练习
+11. 如果是写译弱项：Day1-2 先读范文不写，Day3起才开始轻量练习
+
+### 语言要求
+12. 语气亲切自然，像督学老师写给学生的，不要太正式
+13. 每部分2-4行，不要太长也不要太短
+14. 不要写"复盘单词"，统一写"复习单词"
+15. 不要写"听力生词/阅读生词"，统一写"听力高频词/阅读高频词"
+
+## 输出格式（严格按此 JSON 格式，不要有其他内容）
 {{
   "week_goal": "本周目标一句话",
   "days": [
     {{
       "day": 1,
-      "vocab": "单词任务描述",
-      "reading": "阅读任务描述",
-      "other": "{rule_plan.days[0].other_label}任务描述",
-      "other_label": "{rule_plan.days[0].other_label}"
+      "vocab": "单词任务（含补充高频词和要求）",
+      "reading": "阅读任务（含打卡指标）",
+      "other": "{other_label}任务（含打卡指标或记录要求）",
+      "other_label": "{other_label}"
     }}
   ]
 }}
@@ -247,7 +237,6 @@ Day{dp.day}:
 
 
 def _call_gpt(prompt: str) -> Optional[dict]:
-    """调用 OpenAI GPT，返回解析后的 dict，失败返回 None"""
     try:
         from openai import OpenAI
         client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL)
@@ -265,7 +254,6 @@ def _call_gpt(prompt: str) -> Optional[dict]:
 
 
 def _apply_gpt_result(rule_plan: Week1Plan, gpt_result: dict) -> Week1Plan:
-    """将 GPT 结果合并回 Week1Plan"""
     if "week_goal" in gpt_result:
         rule_plan.week_goal = gpt_result["week_goal"]
 
@@ -284,11 +272,6 @@ def _apply_gpt_result(rule_plan: Week1Plan, gpt_result: dict) -> Week1Plan:
 # ─── 主入口 ──────────────────────────────────────────────────
 
 def generate_week1(profile: StudentProfile, analysis: AnalysisResult, use_gpt: bool = True) -> Week1Plan:
-    """
-    生成 Week1 计划。
-    use_gpt=True 且 OPENAI_API_KEY 已配置时，调用 GPT 润色；
-    否则降级为纯规则模板。
-    """
     rule_plan = _build_week1_rules(profile, analysis)
 
     if use_gpt and OPENAI_API_KEY:

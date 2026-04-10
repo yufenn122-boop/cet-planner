@@ -151,13 +151,13 @@ def _build_week1_rules(profile: StudentProfile, analysis: AnalysisResult) -> Wee
 def _build_gpt_prompt(profile: StudentProfile, analysis: AnalysisResult, rule_plan: Week1Plan) -> str:
     if profile.last_total_score:
         sections_info = (
-            f"- 上次总分：{profile.last_total_score}\n"
-            f"- 听力：{profile.last_listening}，阅读：{profile.last_reading}，写译：{profile.last_writing_translation}\n"
+            f"- 上次总分：{profile.last_total_score:.0f}\n"
+            f"- 听力：{profile.last_listening or '未知'}，阅读：{profile.last_reading or '未知'}，写译：{profile.last_writing_translation or '未知'}\n"
             f"- 强项：{SECTION_CN.get(analysis.strong_section, '未知')}，弱项：{SECTION_CN.get(analysis.weak_section, '未知')}\n"
-            f"- {'明显偏科' if analysis.is_biased else '各科差距不大'}"
+            f"- {'明显偏科（强弱差≥20分）' if analysis.is_biased else '各科差距不大'}"
         )
     else:
-        sections_info = "- 无历史成绩"
+        sections_info = "- 无历史成绩（首次参加或未填写）"
 
     days_draft = ""
     for dp in rule_plan.days:
@@ -170,64 +170,89 @@ def _build_gpt_prompt(profile: StudentProfile, analysis: AnalysisResult, rule_pl
 
     other_label = rule_plan.days[0].other_label
 
-    prompt = f"""你是一名专业的英语四六级督学老师，正在为学生制定 Week1 学习计划。
+    # 根据弱项生成对应的第三部分专项说明
+    if analysis.weak_section == "listening":
+        third_part_rules = """### 听力专项要求（第三部分）
+- Day1-3：先看烤鸭TV方法课（第1集全攻略 → 第2集核心概念 → 第3集短篇新闻题型），边看边记笔记，整理做题思路
+- Day4起：开始做短新闻练习，每次1组，做完对答案，整理没听清的词和错因
+- 每天听力部分必须有打卡指标，例如：打卡要交：正确题数 / 整理3条做题思路
+- Day7：回顾本周笔记，重听错得最多的1组，总结仍听不出来的原因"""
+    elif analysis.weak_section == "writing_translation":
+        third_part_rules = """### 写译专项要求（第三部分）
+- Day1-2：只读范文，不动笔写，分析段落结构和高分句型，整理可套用的句型/翻译技巧
+- Day3起：开始轻量练习（写提纲+开头段 / 翻译1段），限时完成，不追求完美
+- 每天写译部分必须有打卡指标，例如：打卡要交：翻译截图 / 开头段截图
+- Day7：复习本周写译笔记，整理高分句型，总结最大收获"""
+    else:
+        third_part_rules = """### 复习专项要求（第三部分）
+- 以当天单词和阅读的复习巩固为主，穿插翻译或写作轻练
+- 每天复习部分要有具体记录要求，例如：整理错题 / 抄写高分句型
+- Day7：复习本周全部内容，总结学习规律"""
+
+    prompt = f"""你是一名专业的英语四六级督学老师，正在为学生制定 Week1（第一周）学习计划。
 
 ## 学生信息
 - 姓名：{profile.name}
-- 年级：{profile.grade}
+- 年级：{profile.grade or '未填写'}
 - 考试类型：{profile.exam_type}
 - 第几次参加：{profile.attempt_count or '首次'}
 - 词汇基础：{analysis.vocab_base}
 - 每日可用时间：{profile.daily_study_hours}小时{'（时间不固定，有风险）' if profile.daily_time_uncertain else ''}
-- 目标分：{profile.target_score}
+- 目标分：{profile.target_score or '未填写'}
 - 高考英语：{profile.gaokao_english or '未填写'}
 {sections_info}
 
-## 分析结果
+## 程序分析结果（已由规则计算，直接使用，不要自行推断）
 - 分数阶段：{analysis.stage}
 - 任务轻重：{analysis.task_weight}
-- 目标分差：{analysis.score_gap_level}
+- 目标分差评估：{analysis.score_gap_level}
 - Week1 方向：{analysis.week1_focus}
 
-## 规则草稿（请在此基础上润色）
+## 规则草稿（请在此基础上润色，不要大幅改动结构）
 {days_draft}
 
-## 润色要求（严格遵守）
+---
 
-### 结构要求
-1. 每天固定三部分：【单词】【阅读】【{other_label}】，顺序不变
-2. 7天要有递进感：Day1-2 打基础/方法课 → Day3-5 练习强化 → Day6-7 复盘总结
-3. 不要让7天任务完全一样，每天要有细微差异
+## 润色规则（严格遵守，逐条执行）
+
+### 整体结构
+1. 每天固定三部分：【单词】【阅读】【{other_label}】，顺序不变，标签不变
+2. 7天要有明显递进感：Day1-2 打基础/入门 → Day3-5 练习强化 → Day6-7 复盘总结
+3. 每天任务要有细微差异，不能7天完全一样
 
 ### 单词要求
-4. 单词部分必须包含"补充XX高频词10个"（XX根据当天主练板块选：阅读/听力/翻译/写作）
-5. 每天单词要有"要求"说明，例如：把不熟的词抄一遍 / 把最不熟的10个单独记下来
+4. 词汇基础为"{analysis.vocab_base}"：
+   - 若"薄弱"：Day1-2 新背核心词30个，Day3起每天新背20个+复习已背词
+   - 若"已有基础"：以复习巩固为主，每天快速过40个，精记生词
+5. 每天单词必须包含"补充XX高频词10个"（XX根据当天主练板块选：阅读/听力/翻译/写作）
+6. 每天单词必须有"要求"说明，例如：把不熟的词抄一遍 / 把最不熟的10个单独记下来
 
-### 阅读要求
-6. 阅读部分要有具体打卡指标，例如：打卡要交：正确题数 / 错题截图
-7. 仔细阅读每次只做1篇，限时15分钟
-8. 7天阅读要穿插不同题型：仔细阅读（3-4天）+ 选词填空（1天）+ 长篇匹配（1天）+ 复盘（1天）
+### 阅读要求（重要：A档+B档交替安排）
+7. 阅读分两档：
+   - A档（仔细阅读）：每次做1篇，限时15分钟，对答案，记录正确题数
+   - B档（选词填空+长篇匹配）：选词填空限时10分钟 + 长篇匹配限时15分钟，同一天完成
+8. 7天安排：A档出现3-4次，B档出现2-3次，Day7固定为复盘（不做新题，复习本周错题）
+9. A档和B档要交替出现，不能连续3天都是A档
+10. 每次阅读必须有打卡指标，例如：打卡要交：正确题数 / 错题截图
 
-### {other_label}要求
-9. {other_label}部分同样要有打卡指标或具体记录要求
-10. 如果是听力弱项：Day1-3 先看方法课（烤鸭TV），Day4起才开始做题练习
-11. 如果是写译弱项：Day1-2 先读范文不写，Day3起才开始轻量练习
+{third_part_rules}
 
 ### 语言要求
-12. 语气亲切自然，像督学老师写给学生的，不要太正式
-13. 每部分2-4行，不要太长也不要太短
-14. 不要写"复盘单词"，统一写"复习单词"
-15. 不要写"听力生词/阅读生词"，统一写"听力高频词/阅读高频词"
+- 语气亲切自然，像督学老师写给学生的，不要太正式
+- 每部分2-4行，不要太长也不要太短
+- 统一用"复习单词"，不用"复盘单词"
+- 统一用"听力高频词/阅读高频词"，不用"听力生词/阅读生词"
+- 换行用 \\n 表示（JSON字符串内）
 
-## 输出格式（严格按此 JSON 格式，不要有其他内容）
+## 输出格式（严格按此 JSON 格式，不要有任何其他内容）
 {{
-  "week_goal": "本周目标一句话",
+  "week_goal": "本周目标一句话（20字以内，具体有方向感）",
   "days": [
     {{
       "day": 1,
-      "vocab": "单词任务（含补充高频词和要求）",
-      "reading": "阅读任务（含打卡指标）",
-      "other": "{other_label}任务（含打卡指标或记录要求）",
+      "vocab": "单词任务（含补充高频词和要求，用\\n换行）",
+      "reading": "阅读任务（注明A档或B档，含打卡指标，用\\n换行）",
+      "other": "{other_label}任务（含打卡指标或记录要求，用\\n换行）",
       "other_label": "{other_label}"
     }}
   ]

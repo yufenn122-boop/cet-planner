@@ -1,0 +1,8 @@
+# 不上传到 GitHub
+.env
+__pycache__/
+*.pyc
+output/
+*.xlsx
+*.csv
+.streamlit/secrets.toml

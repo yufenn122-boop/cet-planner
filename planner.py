@@ -238,10 +238,12 @@ def _build_gpt_prompt(profile: StudentProfile, analysis: AnalysisResult, rule_pl
 
 def _call_gpt(prompt: str) -> Optional[dict]:
     try:
+        import config as _cfg
         from openai import OpenAI
-        client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL)
+        # 每次调用时重新读取，确保拿到 Streamlit secrets 注入后的最新值
+        client = OpenAI(api_key=_cfg.OPENAI_API_KEY, base_url=_cfg.OPENAI_BASE_URL)
         response = client.chat.completions.create(
-            model=OPENAI_MODEL,
+            model=_cfg.OPENAI_MODEL,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.7,
             response_format={"type": "json_object"},
@@ -274,7 +276,8 @@ def _apply_gpt_result(rule_plan: Week1Plan, gpt_result: dict) -> Week1Plan:
 def generate_week1(profile: StudentProfile, analysis: AnalysisResult, use_gpt: bool = True) -> Week1Plan:
     rule_plan = _build_week1_rules(profile, analysis)
 
-    if use_gpt and OPENAI_API_KEY:
+    import config as _cfg
+    if use_gpt and _cfg.OPENAI_API_KEY:
         prompt = _build_gpt_prompt(profile, analysis, rule_plan)
         gpt_result = _call_gpt(prompt)
         if gpt_result:

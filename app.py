@@ -152,7 +152,7 @@ st.title("📚 四六级督学计划生成器")
 st.caption("上传问卷星 Excel/CSV → 分析学员 → 生成 Week1 计划 → 导出")
 
 # 默认使用 GPT 润色，API Key 从 Secrets 读取，不在界面暴露
-use_gpt = bool(OPENAI_API_KEY)
+use_gpt = bool(_cfg.OPENAI_API_KEY)
 
 # ─── Step 1: 上传文件 ─────────────────────────────────────────
 st.subheader("① 上传问卷文件")

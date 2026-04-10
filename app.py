@@ -20,8 +20,29 @@ from config import OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL
 st.set_page_config(
     page_title="四六级督学计划生成器",
     page_icon="📚",
-    layout="centered",   # 移动端用 centered，避免横向溢出
+    layout="centered",
 )
+
+# ─── 密码验证 ─────────────────────────────────────────────────
+def _check_password():
+    correct = st.secrets.get("APP_PASSWORD", "") if hasattr(st, "secrets") else ""
+    if not correct:
+        return  # 本地未配置密码时直接放行
+
+    if st.session_state.get("authenticated"):
+        return
+
+    st.markdown("## 🔒 请输入访问密码")
+    pwd = st.text_input("密码", type="password", key="pwd_input")
+    if st.button("进入", use_container_width=True):
+        if pwd == correct:
+            st.session_state["authenticated"] = True
+            st.rerun()
+        else:
+            st.error("密码错误，请重试")
+    st.stop()
+
+_check_password()
 
 # ─── 全局移动端 CSS ───────────────────────────────────────────
 st.markdown("""
